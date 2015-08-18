@@ -3,7 +3,7 @@
 #include <ode/ode.h>
 #include <drawstuff/drawstuff.h>
 
-#include <list>
+#include <map>
 
 //#define NUM 4         // Number of links
 
@@ -19,10 +19,42 @@ static double r[NUM]  = { 0.20, 0.04, 0.04, 0.04};  // Radius of links[m]
 
 class DrawBody{ 
 public:
+
     virtual void doDraw() = 0;
+
+    // --------------------------------------------------------------------------
+    static const std::map<size_t,DrawBody *> & getDrawMap(){return worldDrawMap;};
+
+    explicit DrawBody(){
+        counter++;
+
+        unique_n_counter++;
+        unique_n = unique_n_counter;
+
+        worldDrawMap[unique_n] = this;
+    }
+
+    ~DrawBody(){
+        worldDrawMap[unique_n] = 0;
+
+        counter--;
+        if (counter == 0){
+            worldDrawMap.clear();
+        }
+    }
+
+private:
+    size_t unique_n;
+    static size_t unique_n_counter;
+
+    static size_t counter;
+    static std::map<size_t,DrawBody *> worldDrawMap;
 };
 
-static std::list<DrawBody *> worldDrawList;
+size_t DrawBody::counter = 0;
+size_t DrawBody::unique_n_counter = 0;
+std::map<size_t,DrawBody *> DrawBody::worldDrawMap;
+
 
 typedef struct {
     dBodyID     body;   // a body
@@ -32,15 +64,11 @@ typedef struct {
 } dPart;
 
 
-
-
 class Leg2 : public DrawBody{
 
 public:
 
     Leg2( const dWorldID & _world ){
-
-        //if (!_world) throw 
         createLeg( _world );
     }
 
@@ -143,13 +171,8 @@ void simLoop(int pause) {
 
     dWorldStep(world, 0.0001);
 
-    // Draw a robot
-    //dsSetColor(1.0,1.0,1.0); // Set color (r, g, b), In this case white is set
-    //for (int i = 0; i < NUM; i++ ) //　Draw capsules for links
-    //    dsDrawCapsuleD(dBodyGetPosition(link[i]), dBodyGetRotation(link[i]), l[i], r[i]);
-
-    for ( std::list<DrawBody *>::iterator it = worldDrawList.begin(); it != worldDrawList.end(); ++it){
-        DrawBody * drawBody = *it;
+    for ( std::map<size_t, DrawBody *>::const_iterator it = DrawBody::getDrawMap().begin(); it != DrawBody::getDrawMap().end(); ++it){
+        DrawBody * drawBody = it->second;
         if (drawBody) {
             drawBody->doDraw();
         }
@@ -180,7 +203,7 @@ int main(int argc, char *argv[]) {
     world = dWorldCreate();  // Create a world
     dWorldSetGravity(world, 0, 0, -9.8);
 
-    worldDrawList.push_back( new Leg2(world) );
+    Leg2 leg(world);
 
     /*
     for (int i = 0; i < NUM; i++) {
@@ -205,11 +228,6 @@ int main(int argc, char *argv[]) {
 
     dsSimulationLoop(argc, argv, 640, 480, &fn); //　Simulation loop
 
-    for ( std::list<DrawBody *>::iterator it = worldDrawList.begin(); it != worldDrawList.end(); ++it){
-        delete (*it);
-        (*it) = 0;
-    }
-    
     dCloseODE();
     return 0;
 }
