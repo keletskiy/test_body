@@ -1,105 +1,103 @@
-
 #define dDOUBLE
 
 #include <ode/ode.h>
 #include <drawstuff/drawstuff.h>
 
-// dynamics and collision objects
-static dWorldID world;
-static dSpaceID space;
-static dBodyID body;
-static dGeomID geom;
-static dMass m;
-static dJointGroupID contactgroup;
+#define NUM 4         // Number of links
 
-// this is called by dSpaceCollide when two objects in space are
-// potentially colliding.
-static void nearCallback (void *data, dGeomID o1, dGeomID o2)
-{
-    dBodyID b1 = dGeomGetBody(o1);
-    dBodyID b2 = dGeomGetBody(o2);
-    dContact contact;  
-    contact.surface.mode = dContactBounce | dContactSoftCFM;
-    // friction parameter
-    contact.surface.mu = dInfinity;
-    // bounce is the amount of "bouncyness".
-    contact.surface.bounce = 0.9;
-    // bounce_vel is the minimum incoming velocity to cause a bounce
-    contact.surface.bounce_vel = 0.1;
-    // constraint force mixing parameter
-    contact.surface.soft_cfm = 0.001;  
-    if (int numc = dCollide (o1,o2,1,&contact.geom,sizeof(dContact))) {
-        dJointID c = dJointCreateContact (world,contactgroup,&contact);
-        dJointAttach (c,b1,b2);
+dWorldID    world;       // A dynamic world
+dBodyID     link[NUM];    // Links　link[0] is a base
+dJointID    joint[NUM];  // Joints    joint[0] is a fixed joint between a base and a ground
+
+static double THETA[NUM] = { 0.0, 0.0, 0.0, 0.0};  // Target joint angels[rad]
+static double l[NUM]  = { 0.10, 0.90, 1.00, 1.00};  // Length of links[m]
+static double r[NUM]  = { 0.20, 0.04, 0.04, 0.04};  // Radius of links[m]
+
+void control() {  /***  P control  ****/
+  static int step = 0;     // Steps of simulation    
+  double k1 =  10.0,  fMax  = 100.0; // k1: proportional gain,  fMax：Max torque[Nm]
+
+  printf("\r%6d:",step++);
+  for (int j = 1; j < NUM; j++) {
+    double tmpAngle = dJointGetHingeAngle(joint[j]);  // Present angle[rad]
+    double z = THETA[j] - tmpAngle;  // z: residual=target angle - present angle
+    dJointSetHingeParam(joint[j], dParamVel, k1*z); // Set angular velocity[m/s]
+    dJointSetHingeParam(joint[j], dParamFMax, fMax); // Set max torque[N/m]
+  }
+}
+
+void start() { /*** Initialize drawing API ***/
+  float xyz[3] = {  3.04f, 1.28f, 0.76f};   // View point x, y, z　[m]
+  float hpr[3] = { -160.0f, 4.50f, 0.00f};  // View direction(heading, pitch, roll)　[°]
+  dsSetViewpoint(xyz,hpr);   // Set view-point and gaze direction
+}
+
+void command(int cmd) { /*** Keyboard function ***/
+  switch (cmd) {
+    case 'i':  THETA[1] += 0.05; break;  // When j key is pressed, THETA[1] is increases at 0.05[rad]
+    case 'f':  THETA[1] -= 0.05; break;
+    case 'j':  THETA[2] += 0.05; break;
+    case 'd':  THETA[2] -= 0.05; break;
+    case 'l':  THETA[3] += 0.05; break;
+    case 's':  THETA[3] -= 0.05; break;
     }
+    if (THETA[1] <   - M_PI)    THETA[1] =  - M_PI;
+    if (THETA[1] >     M_PI)    THETA[1] =    M_PI;
+    if (THETA[2] <  -2*M_PI/3)  THETA[2] =  - 2*M_PI/3;
+    if (THETA[2] >   2*M_PI/3)  THETA[2] =    2*M_PI/3;
+    if (THETA[3] <  -2*M_PI/3)  THETA[3] =  - 2*M_PI/3;
+    if (THETA[3] >   2*M_PI/3)  THETA[3] =    2*M_PI/3;
 }
 
-//This function is called at the start of the simulation to set up the point of view of the camera.
-// start simulation - set viewpoint
-static void start()
-{
-    static float xyz[3] = {2.0f,-2.0f,1.7600f};
-    static float hpr[3] = {140.000f,-17.0000f,0.0000f};
-    dsSetViewpoint (xyz,hpr);
+// Simulation loop
+void simLoop(int pause) {
+  control();
+  dWorldStep(world, 0.02);
+
+  // Draw a robot
+  dsSetColor(1.0,1.0,1.0); // Set color (r, g, b), In this case white is set
+  for (int i = 0; i < NUM; i++ ) //　Draw capsules for links
+    dsDrawCapsuleD(dBodyGetPosition(link[i]), dBodyGetRotation(link[i]), l[i], r[i]);
 }
 
-//This is the main simulation loop that calls the collision detection function, steps the simulation, resets the temporary contact joint group, and redraws the objects at their new position.
-// simulation loop
-static void simLoop (int pause)
-{
-    const dReal *pos;
-    const dReal *R;
-    // find collisions and add contact joints
-    dSpaceCollide (space,0,&nearCallback);
-    // step the simulation
-    dWorldQuickStep (world,0.01);  
-    // remove all contact joints
-    dJointGroupEmpty (contactgroup);
-    // redraw sphere at new location
-    pos = dGeomGetPosition (geom);
-    R = dGeomGetRotation (geom);
-    
-    dsDrawSphereD (pos,R,dGeomSphereGetRadius (geom));
-}
+int main(int argc, char *argv[]) {
+  dsFunctions fn;
+  double x[NUM] = {0.00}, y[NUM] = {0.00};  // Center of gravity
+  double z[NUM]         = { 0.05, 0.50, 1.50, 2.55};
+  double m[NUM] = {10.00, 2.00, 2.00, 2.00};       // mass
+  double anchor_x[NUM]  = {0.00}, anchor_y[NUM] = {0.00};// anchors of joints
+  double anchor_z[NUM] = { 0.00, 0.10, 1.00, 2.00};
+  double axis_x[NUM]  = { 0.00, 0.00, 0.00, 0.00};  // axises of joints
+  double axis_y[NUM]  = { 0.00, 0.00, 1.00, 1.00};
+  double axis_z[NUM]  = { 1.00, 1.00, 0.00, 0.00};
+  fn.version = DS_VERSION;  fn.start   = &start;   fn.step   = &simLoop;
+  fn.command = &command;
+  fn.path_to_textures = "drawstuff_texture";
 
-//When the program starts, the callbacks are set up, everything is initialized, and then the simulation is started.
-int main (int argc, char **argv)
-{
-    // setup pointers to drawstuff callback functions
-    dsFunctions fn;
-    fn.version = DS_VERSION;
-    fn.start = &start;
-    fn.step = &simLoop;
-    fn.stop = 0;
-    fn.command = 0;
-    fn.path_to_textures = "drawstuff_texture";
+  dInitODE();  // Initialize ODE
+  world = dWorldCreate();  // Create a world
+  dWorldSetGravity(world, 0, 0, -9.8);
 
-    dInitODE ();
-    // create world
-    world = dWorldCreate();
-    space = dHashSpaceCreate (0);
-    dWorldSetGravity (world,0,0,-0.2);
-    dWorldSetCFM (world,1e-5);
-    dCreatePlane (space,0,0,1,0);
-    contactgroup = dJointGroupCreate (0);
-    
-    // create object
-    body = dBodyCreate (world);
-    geom = dCreateSphere (space,0.5);
-    dMassSetSphere(&m,1,0.5);
-    dBodySetMass (body,&m);
-    dGeomSetBody (geom,body);
+  for (int i = 0; i < NUM; i++) {
+    dMass mass;
+    link[i] = dBodyCreate(world);
+    dBodySetPosition(link[i], x[i], y[i], z[i]); // Set a position
+    dMassSetZero(&mass);      // Set mass parameter to zero
+    dMassSetCapsuleTotal(&mass,m[i],3,r[i],l[i]);  // Calculate mass parameter
+    dBodySetMass(link[i], &mass);  // Set mass
+  }
 
-    // set initial position
-    dBodySetPosition (body,0,0,3);
+  joint[0] = dJointCreateFixed(world, 0); // A fixed joint
+  dJointAttach(joint[0], link[0], 0);     // Attach the joint between the ground and the base
+  dJointSetFixed(joint[0]);               // Set the fixed joint
 
-    // run simulation
-    dsSimulationLoop (argc,argv,640,480,&fn);
-
-    // clean up
-    dJointGroupDestroy (contactgroup);
-    dSpaceDestroy(space);
-    dWorldDestroy(world);
-    dCloseODE();
-    return 0;
+  for (int j = 1; j < NUM; j++) {
+    joint[j] = dJointCreateHinge(world, 0); // Create a hinge joint
+    dJointAttach(joint[j], link[j-1], link[j]); // Attach the joint
+    dJointSetHingeAnchor(joint[j], anchor_x[j], anchor_y[j],anchor_z[j]);
+    dJointSetHingeAxis(joint[j], axis_x[j], axis_y[j], axis_z[j]);
+  }
+  dsSimulationLoop(argc, argv, 640, 570, &fn); //　Simulation loop
+  dCloseODE();
+  return 0;
 }
