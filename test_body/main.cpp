@@ -60,26 +60,21 @@ typedef struct {
     dBodyID     body;   // a body
     dGeomID     geom; //  a geometry
     dReal       radius, length, mass; // radius[m], length[m], mass[kg]
-    
+
 } dPart;
 
 
-class Leg2 : public DrawBody{
+class Leg{
+
+    friend class LegDraw;
 
 public:
 
-    Leg2( const dWorldID & _world ){
+    Leg( const dWorldID & _world){
         createLeg( _world );
     }
 
-    void doDraw(){
-        dsSetColor(0.0,0.0,1.0);
-        dsDrawCapsuleD(dBodyGetPosition(lower_part.body), dBodyGetRotation(lower_part.body), lower_part.length, lower_part.radius);
-        dsSetColor(1.0,0.0,0.0);
-        dsDrawCapsuleD(dBodyGetPosition(upper_part.body), dBodyGetRotation(upper_part.body), upper_part.length, upper_part.radius);
-    }
-
-private:
+protected:
 
     void createLeg( const dWorldID & _world ){
         // read leg parameters there 
@@ -88,7 +83,7 @@ private:
         lower_part.length = 0.5;
 
         dReal lower_part_pos[3] =  {0.0, 0.0, lower_part.length};
-        
+
         upper_part.mass = 0.5;
         upper_part.radius = 0.1;
         upper_part.length = 0.5;
@@ -116,18 +111,37 @@ private:
     dJointID  jointHinge;
 };
 
-
+    // DRAW CLASS METHOD
+class LegDraw : public DrawBody{
+    public:
+        LegDraw( const Leg * _leg ):leg(_leg){
+        }
+        void doDraw(){
+            if (!leg) return;
+            dsSetColor(0.0,0.0,1.0);
+            dsDrawCapsuleD(dBodyGetPosition(leg->lower_part.body), dBodyGetRotation(leg->lower_part.body), leg->lower_part.length, leg->lower_part.radius);
+            dsSetColor(1.0,0.0,0.0);
+            dsDrawCapsuleD(dBodyGetPosition(leg->upper_part.body), dBodyGetRotation(leg->upper_part.body), leg->upper_part.length, leg->upper_part.radius);
+            //TEST 
+            double k1 =  1.0,  fMax  = 10.0; // k1: proportional gain,  fMax：Max torque[Nm]
+            //dJointSetHingeParam(jointHinge, dParamVel, k1); // Set angular velocity[m/s]
+            //dJointSetHingeParam(jointHinge, dParamFMax, fMax); // Set max torque[N/m]
+            printf("\r %6d:",dJointGetHingeAngle(leg->jointHinge)); 
+        }
+    private:
+        const Leg * leg;
+    };
 
 void control() {  /***  P control  ****/
-   /* static int step = 0;     // Steps of simulation    
+    /* static int step = 0;     // Steps of simulation    
     double k1 =  10.0,  fMax  = 100.0; // k1: proportional gain,  fMax：Max torque[Nm]
 
     printf("\r%6d:",step++);
     for (int j = 1; j < NUM; j++) {
-        double tmpAngle = dJointGetHingeAngle(joint[j]);  // Present angle[rad]
-        double z = THETA[j] - tmpAngle;  // z: residual=target angle - present angle
-        dJointSetHingeParam(joint[j], dParamVel, k1*z); // Set angular velocity[m/s]
-        dJointSetHingeParam(joint[j], dParamFMax, fMax); // Set max torque[N/m]
+    double tmpAngle = dJointGetHingeAngle(joint[j]);  // Present angle[rad]
+    double z = THETA[j] - tmpAngle;  // z: residual=target angle - present angle
+    dJointSetHingeParam(joint[j], dParamVel, k1*z); // Set angular velocity[m/s]
+    dJointSetHingeParam(joint[j], dParamFMax, fMax); // Set max torque[N/m]
     }
     */
 }
@@ -139,7 +153,7 @@ void start() { /*** Initialize drawing API ***/
 }
 
 void command(int cmd) { /*** Keyboard function ***/
-   /* switch (cmd) {
+    /* switch (cmd) {
     case 'i':  THETA[1] += 0.05; break;  // When j key is pressed, THETA[1] is increases at 0.05[rad]
     case 'f':  THETA[1] -= 0.05; break;
     case 'j':  THETA[2] += 0.05; break;
@@ -183,16 +197,16 @@ int main(int argc, char *argv[]) {
     dsFunctions fn;
     double x[4] = {0.00}, y[4] = {0.00};  // Center of gravity
     double z[4] = { 0.05, 0.50, 1.50, 2.55};
-    
+
     double m[4] = {10.00, 2.00, 2.00, 2.00};       // mass
-    
+
     double anchor_x[4]  = {0.00}, anchor_y[4] = {0.00};// anchors of joints
     double anchor_z[4] = { 0.00, 0.10, 1.00, 2.00};
 
     double axis_x[4]  = { 0.00, 0.00, 0.00, 0.00};  // axises of joints
     double axis_y[4]  = { 0.00, 0.00, 1.00, 1.00};
     double axis_z[4]  = { 1.00, 1.00, 0.00, 0.00};
-    
+
     fn.version = DS_VERSION;
     fn.start   = &init;
     fn.step    = &simLoop;
@@ -203,16 +217,19 @@ int main(int argc, char *argv[]) {
     world = dWorldCreate();  // Create a world
     dWorldSetGravity(world, 0, 0, -9.8);
 
-    Leg2 leg(world);
+    bool isDrawingEnabled = true;
 
+    Leg leg(world);
+    LegDraw legDraw(&leg);
+    
     /*
     for (int i = 0; i < NUM; i++) {
-        dMass mass;
-        link[i] = dBodyCreate(world);
-        dBodySetPosition(link[i], x[i], y[i], z[i]); // Set a position
-        dMassSetZero(&mass);      // Set mass parameter to zero
-        dMassSetCapsuleTotal(&mass,m[i],3,r[i],l[i]);  // Calculate mass parameter
-        dBodySetMass(link[i], &mass);  // Set mass
+    dMass mass;
+    link[i] = dBodyCreate(world);
+    dBodySetPosition(link[i], x[i], y[i], z[i]); // Set a position
+    dMassSetZero(&mass);      // Set mass parameter to zero
+    dMassSetCapsuleTotal(&mass,m[i],3,r[i],l[i]);  // Calculate mass parameter
+    dBodySetMass(link[i], &mass);  // Set mass
     }
 
     joint[0] = dJointCreateFixed(world, 0); // A fixed joint
@@ -220,10 +237,10 @@ int main(int argc, char *argv[]) {
     dJointSetFixed(joint[0]);               // Set the fixed joint
 
     for (int j = 1; j < NUM; j++) {
-        joint[j] = dJointCreateHinge(world, 0); // Create a hinge joint
-        dJointAttach(joint[j], link[j-1], link[j]); // Attach the joint
-        dJointSetHingeAnchor(joint[j], anchor_x[j], anchor_y[j],anchor_z[j]);
-        dJointSetHingeAxis(joint[j], axis_x[j], axis_y[j], axis_z[j]);
+    joint[j] = dJointCreateHinge(world, 0); // Create a hinge joint
+    dJointAttach(joint[j], link[j-1], link[j]); // Attach the joint
+    dJointSetHingeAnchor(joint[j], anchor_x[j], anchor_y[j],anchor_z[j]);
+    dJointSetHingeAxis(joint[j], axis_x[j], axis_y[j], axis_z[j]);
     }*/
 
     dsSimulationLoop(argc, argv, 640, 480, &fn); //　Simulation loop
